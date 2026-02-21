@@ -1,4 +1,4 @@
-name: Build and Deploy to Swarm
+name: Build and Deploy to Swarm (EC2)
 
 on:
   push:
@@ -10,13 +10,12 @@ env:
 
 jobs:
   build_push_deploy:
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Buildx is still useful for multi-arch, even on self-hosted
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -49,18 +48,22 @@ jobs:
           tags: |
             ${{ env.PY_IMAGE }}:${{ github.sha }}
 
-      # ✅ Local deploy on the Swarm manager (self-hosted runner)
-      - name: Deploy (Swarm rolling update)
-        run: |
-          set -e
-          echo "Deploying SHA: ${{ github.sha }}"
+      - name: Deploy to EC2 Swarm
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            echo "Deploying SHA: ${{ github.sha }}"
 
-          docker service update \
-            --image ${{ env.NODE_IMAGE }}:${{ github.sha }} \
-            appstack_client-a-node
+            docker service update \
+              --image harikayarabala/client-a-node:${{ github.sha }} \
+              appstack_client-a-node
 
-          docker service update \
-            --image ${{ env.PY_IMAGE }}:${{ github.sha }} \
-            appstack_client-b-python
+            docker service update \
+              --image harikayarabala/client-b-python:${{ github.sha }} \
+              appstack_client-b-python
 
-          docker stack services appstack
+            docker stack services appstack
