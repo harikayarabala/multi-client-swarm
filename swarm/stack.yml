@@ -1,0 +1,74 @@
+version: "3.8"
+
+services:
+  client-a-node:
+    image: harikayarabala/client-a-node:1.0
+    networks:
+      - app_net
+    configs:
+      - source: client_a_name
+        target: /run/configs/client_name
+    secrets:
+      - source: client_a_db
+        target: client_a_db
+    command: >
+      sh -c "export CLIENT_NAME=$$(cat /run/configs/client_name) &&
+             export DB_CONNECTION=$$(cat /run/secrets/client_a_db) &&
+             node server.js"
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.labels.arch == arm64
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+
+  client-b-python:
+    image: harikayarabala/client-b-python:1.0
+    networks:
+      - app_net
+    configs:
+      - source: client_b_name
+        target: /run/configs/client_name
+    secrets:
+      - source: client_b_db
+        target: client_b_db
+    command: >
+      sh -c "export CLIENT_NAME=$$(cat /run/configs/client_name) &&
+             export DB_CONNECTION=$$(cat /run/secrets/client_b_db) &&
+             uvicorn main:app --host 0.0.0.0 --port 8000"
+    deploy:
+      replicas: 3
+      placement:
+        constraints:
+          - node.labels.arch == arm64
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 5s
+        order: start-first
+
+networks:
+  app_net:
+    driver: overlay
+
+configs:
+  client_a_name:
+    file: ./client_a_name.txt
+  client_b_name:
+    file: ./client_b_name.txt
+
+secrets:
+  client_a_db:
+    file: ./client_a_db.txt
+  client_b_db:
+    file: ./client_b_db.txt
