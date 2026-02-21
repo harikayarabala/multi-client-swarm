@@ -5,7 +5,6 @@ on:
     branches: ["main"]
 
 env:
-  DOCKERHUB_USER: harikayarabala
   NODE_IMAGE: harikayarabala/client-a-node
   PY_IMAGE: harikayarabala/client-b-python
 
@@ -17,6 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Buildx is still useful for multi-arch, even on self-hosted
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -29,8 +29,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Build + push Node (multi-arch) with commit SHA tag
-      - name: Build & push Node image
+      - name: Build & push Node image (SHA tag)
         uses: docker/build-push-action@v6
         with:
           context: ./client-a-node-app
@@ -40,8 +39,7 @@ jobs:
           tags: |
             ${{ env.NODE_IMAGE }}:${{ github.sha }}
 
-      # Build + push Python (multi-arch) with commit SHA tag
-      - name: Build & push Python image
+      - name: Build & push Python image (SHA tag)
         uses: docker/build-push-action@v6
         with:
           context: ./client-b-python-app
@@ -51,23 +49,18 @@ jobs:
           tags: |
             ${{ env.PY_IMAGE }}:${{ github.sha }}
 
-      # SSH into your Swarm manager and update services to the new SHA-tagged images
+      # ✅ Local deploy on the Swarm manager (self-hosted runner)
       - name: Deploy (Swarm rolling update)
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SWARM_HOST }}
-          username: ${{ secrets.SWARM_USER }}
-          key: ${{ secrets.SWARM_SSH_KEY }}
-          script: |
-            set -e
-            echo "Deploying SHA: ${{ github.sha }}"
+        run: |
+          set -e
+          echo "Deploying SHA: ${{ github.sha }}"
 
-            docker service update \
-              --image ${{ env.NODE_IMAGE }}:${{ github.sha }} \
-              appstack_client-a-node
+          docker service update \
+            --image ${{ env.NODE_IMAGE }}:${{ github.sha }} \
+            appstack_client-a-node
 
-            docker service update \
-              --image ${{ env.PY_IMAGE }}:${{ github.sha }} \
-              appstack_client-b-python
+          docker service update \
+            --image ${{ env.PY_IMAGE }}:${{ github.sha }} \
+            appstack_client-b-python
 
-            docker stack services appstack
+          docker stack services appstack
