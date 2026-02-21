@@ -1,0 +1,73 @@
+name: Build and Deploy to Swarm
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  DOCKERHUB_USER: harikayarabala
+  NODE_IMAGE: harikayarabala/client-a-node
+  PY_IMAGE: harikayarabala/client-b-python
+
+jobs:
+  build_push_deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Build + push Node (multi-arch) with commit SHA tag
+      - name: Build & push Node image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./client-a-node-app
+          file: ./client-a-node-app/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.NODE_IMAGE }}:${{ github.sha }}
+
+      # Build + push Python (multi-arch) with commit SHA tag
+      - name: Build & push Python image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./client-b-python-app
+          file: ./client-b-python-app/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.PY_IMAGE }}:${{ github.sha }}
+
+      # SSH into your Swarm manager and update services to the new SHA-tagged images
+      - name: Deploy (Swarm rolling update)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SWARM_HOST }}
+          username: ${{ secrets.SWARM_USER }}
+          key: ${{ secrets.SWARM_SSH_KEY }}
+          script: |
+            set -e
+            echo "Deploying SHA: ${{ github.sha }}"
+
+            docker service update \
+              --image ${{ env.NODE_IMAGE }}:${{ github.sha }} \
+              appstack_client-a-node
+
+            docker service update \
+              --image ${{ env.PY_IMAGE }}:${{ github.sha }} \
+              appstack_client-b-python
+
+            docker stack services appstack
