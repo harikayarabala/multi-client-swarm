@@ -12,7 +12,16 @@ def read_secret(path: str) -> str | None:
 
 @app.get("/")
 def root():
-    client_name = os.getenv("CLIENT_NAME") or read_secret("/run/secrets/client_b_name") or "Client-B"
-    db = os.getenv("DB_CONNECTION") or read_secret("/run/secrets/client_b_db") or "Not Provided"
+    client_name = (
+        os.getenv("CLIENT_NAME")
+        or read_secret("/run/secrets/client-b-name")
+        or "Client-B"
+    )
+
+    db = (
+        os.getenv("DB_CONNECTION")
+        or read_secret("/run/secrets/client-b-db-url")
+        or "Not Provided"
+    )
 
     return {"message": f"Hello from {client_name}", "database": db}
