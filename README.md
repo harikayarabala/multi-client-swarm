@@ -58,8 +58,9 @@ Secrets are available inside containers at:
 ```bash
 docker swarm init
 
-Join Worker Node
+##Join Worker Node
 docker swarm join --token <TOKEN> <MANAGER_PRIVATE_IP>:2377
+**Verify nodes**
 docker node ls
 
 **3) Create Secrets**
@@ -97,10 +98,11 @@ client-a.example.com → Node app
 
 client-b.example.com → Python app
 
-Test routing (from EC2)
+**Test routing (from EC2)**
 curl -o /dev/null -w "client-a => %{http_code}\n" -H "Host: client-a.example.com" http://127.0.0.1/
 curl -o /dev/null -w "client-b => %{http_code}\n" -H "Host: client-b.example.com" http://127.0.0.1/
-Validate API responses (DB values read from secrets)
+
+**Validate API responses (DB values read from secrets)**
 curl -s -H "Host: client-a.example.com" http://127.0.0.1/
 curl -s -H "Host: client-b.example.com" http://127.0.0.1/
 
@@ -108,23 +110,33 @@ Expected (example):
 
 {"message":"Hello from Client-A","database":"postgres://client-a-db"}
 {"message":"Hello from Client-B","database":"postgres://client-b-db"}
-Traefik Dashboard (optional)
+
+**Traefik Dashboard **(optional)
 http://<EC2_PUBLIC_IP>:8080
 
-Note: In production, dashboard should be protected (basic auth / IP allowlist) or disabled.
-6) Secrets Proof (Inside Container)
+
+**6) Secrets Proof (Inside Container)**
+
 CID=$(docker ps -q --filter "name=appstack_client-a-node" | head -n 1)
 docker exec -it "$CID" sh -lc 'ls -l /run/secrets; echo "----"; cat /run/secrets/client_a_db; echo'
-7) Scaling Scenario
+
+**7) Scaling Scenario**
 Manual Scaling
 docker service scale appstack_client-a-node=5
 docker service ls | egrep "client-a-node|client-b-python|traefik"
-Worker Node Participation Proof
+
+**Worker Node Participation Proof**
+
 docker service ps appstack_client-a-node --format "table {{.Name}}\t{{.Node}}\t{{.CurrentState}}"
 
-This shows replicas distributed across manager and worker nodes.
 
-8) Rolling Update & Zero Downtime
+
+**8) Rolling Update & Zero Downtime**
+Rolling updates are configured via:
+
+update_config.parallelism: 1
+
+update_config.delay: 10s
 
 Swarm rolling updates are configured via:
 
