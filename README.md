@@ -1,212 +1,252 @@
-# Multi-Client Docker Swarm Deployment on AWS EC2 (Traefik + Secrets + CI/CD)
+                    +----------------------+
+                    |    Users / Browser   |
+                    +----------+-----------+
+                               |
+                          HTTP/HTTPS
+                               |
+                    +----------v-----------+
+                    |   Traefik (Ingress)  |
+                    |  Host-based routing  |
+                    +----+------------+----+
+                         |            |
+             client-a.*  |            |  client-b.*
+                         |            |
+           +-------------v--+     +---v--------------+
+           | Client-A Node   |     | Client-B FastAPI |
+           | replicas: 3     |     | replicas: 3      |
+           +-----------------+     +------------------+
 
-## Objective
-Design and deploy a scalable multi-client application environment on AWS EC2 using Docker Swarm, supporting:
-- Multiple Node.js and Python services
-- Client-specific deployments (separate DB strings / client name)
-- Horizontal scaling
-- Reverse proxy routing (Traefik)
-- Basic monitoring/logging (proposal)
+           # Multi-Client Docker Swarm on AWS EC2 (Traefik + Prometheus + Grafana + Loki)
 
----
-
-## What’s Deployed
-### Services
-- **Client A (Node.js REST API)** → `client-a-node-app`
-- **Client B (FastAPI)** → `client-b-python-app`
-- **Traefik Reverse Proxy** → routes traffic based on host rules
-
-### Swarm Cluster
-- **1 Manager + 1 Worker**
-- Services run as replicas across both nodes (high availability)
-
-### Networking
-- **Overlay network**: `appnet` (Swarm overlay)
-
-### Secrets (Client-Specific)
-Stored securely using Docker Swarm Secrets and mounted at runtime:
-- `client_a_db`, `client_a_name`
-- `client_b_db`, `client_b_name`
-
-Secrets are available inside containers at:
-- `/run/secrets/client_a_db`, `/run/secrets/client_a_name`
-- `/run/secrets/client_b_db`, `/run/secrets/client_b_name`
+This repo demonstrates a **multi-client** deployment on **AWS EC2** using **Docker Swarm**, supporting:
+- Multiple services (Node.js + FastAPI)
+- Client-specific routing via **Traefik**
+- Horizontal scaling (replicas)
+- Basic monitoring (**Prometheus + Node Exporter + cAdvisor + Grafana**)
+- Centralized logging (**Loki + Promtail + Grafana**)
 
 ---
 
-## Repository Structure
-- `.github/workflows/` → GitHub Actions pipeline (build + push + deploy)
-- `client-a-node-app/` → Node app + Dockerfile + .dockerignore
-- `client-b-python-app/` → FastAPI app + Dockerfile + .dockerignore
-- `swarm/` → `stack.yml` and secret txt files used for secret creation
+## ✅ What’s deployed
+
+### Client Apps
+- **Client-A**: Node.js REST API  
+  Route: `client-a.<your-domain>` → Node service
+- **Client-B**: Python FastAPI  
+  Route: `client-b.<your-domain>` → FastAPI service
+
+Each client has:
+- Separate env variables
+- Separate DB connection string (example values)
+
+### Reverse Proxy
+- **Traefik** (routes & load-balances across replicas)
+
+### Monitoring
+- Prometheus targets:
+  - `prometheus`
+  - `node-exporter`
+  - `cadvisor`
+- Grafana dashboards (Node Exporter + cAdvisor)
+
+### Logging
+- Loki + Promtail (container logs visible in Grafana Explore)
 
 ---
 
-## 1) Containerization
-### Node (Multi-Stage Build)
-- Uses multi-stage Docker build to reduce image size and keep runtime minimal.
-- `.dockerignore` included.
+## 🧱 Architecture (high level)
 
-### Python (Slim Image)
-- Uses slim base image + installs only requirements.
-- `.dockerignore` included.
+Users → Traefik (80/443) → Swarm services (replicas)  
+Monitoring: Prometheus scrapes node-exporter + cAdvisor  
+Logging: Promtail → Loki → Grafana Explore
 
 ---
 
-## 2) Swarm Setup (Manager + Worker)
-### Initialize Swarm (Manager)
+## 📌 Prerequisites
+
+### On AWS
+- 1 Manager + 1 Worker EC2 (Ubuntu recommended)
+- Security Group open:
+  - `22` (SSH)
+  - `80` (HTTP)
+  - `443` (HTTPS)
+  - `8080` (Traefik dashboard - optional)
+  - `9090` (Prometheus - optional)
+  - `3000` (Grafana - optional)
+
+### On both nodes
+- Docker installed
+- Swarm initialized
+
+---
+
+## 🚀 Setup Docker Swarm
+
+### 1) On Manager
 ```bash
 docker swarm init
 
-##Join Worker Node
-docker swarm join --token <TOKEN> <MANAGER_PRIVATE_IP>:2377
-**Verify nodes**
-docker node ls
 
-**3) Create Secrets**
+##🌐 DNS / Domain Setup
 
-From swarm/ folder:
+Create DNS A records pointing to your EC2 public IP:
 
-docker secret create client_a_db client_a_db.txt
-docker secret create client_a_name client_a_name.txt
-docker secret create client_b_db client_b_db.txt
-docker secret create client_b_name client_b_name.txt
+client-a.<your-domain> → <EC2_PUBLIC_IP>
 
-docker secret ls
-
-
-**4) Deploy the Swarm Stack**
-
-From swarm/ folder:
-
-docker stack deploy -c stack.yml appstack
-docker stack services appstack
-
-Deployment config includes:
-
-replicas: 3+
-
-restart_policy: on-failure
-
-update_config: parallelism 1, delay 10s
-
-5) Reverse Proxy Routing (Traefik)
-
-Traefik routes based on Host rules:
-
-client-a.example.com → Node app
-
-client-b.example.com → Python app
-
-**Test routing (from EC2)**
-curl -o /dev/null -w "client-a => %{http_code}\n" -H "Host: client-a.example.com" http://127.0.0.1/
-curl -o /dev/null -w "client-b => %{http_code}\n" -H "Host: client-b.example.com" http://127.0.0.1/
-
-**Validate API responses (DB values read from secrets)**
-curl -s -H "Host: client-a.example.com" http://127.0.0.1/
-curl -s -H "Host: client-b.example.com" http://127.0.0.1/
-
-Expected (example):
-
-{"message":"Hello from Client-A","database":"postgres://client-a-db"}
-{"message":"Hello from Client-B","database":"postgres://client-b-db"}
-
-**Traefik Dashboard **(optional)
-http://<EC2_PUBLIC_IP>:8080
-
-
-**6) Secrets Proof (Inside Container)**
-
-CID=$(docker ps -q --filter "name=appstack_client-a-node" | head -n 1)
-docker exec -it "$CID" sh -lc 'ls -l /run/secrets; echo "----"; cat /run/secrets/client_a_db; echo'
-
-**7) Scaling Scenario**
-Manual Scaling
-docker service scale appstack_client-a-node=5
-docker service ls | egrep "client-a-node|client-b-python|traefik"
-
-**Worker Node Participation Proof**
-
-docker service ps appstack_client-a-node --format "table {{.Name}}\t{{.Node}}\t{{.CurrentState}}"
-
-
-
-**8) Rolling Update & Zero Downtime**
-Rolling updates are configured via:
-
-update_config.parallelism: 1
-
-update_config.delay: 10s
-
-Swarm rolling updates are configured via:
-
-update_config.parallelism: 1
-
-update_config.delay: 10s
-
-Swarm updates containers one-by-one, keeping the service available.
+client-b.<your-domain> → <EC2_PUBLIC_IP>
 
 Example:
 
-docker service update --image <new_image_tag> appstack_client-a-node
-How Swarm Ensures Availability
+client-a.harikayarabaladevops.in
 
-Docker Swarm ensures availability by:
+client-b.harikayarabaladevops.in
 
-Running multiple replicas across nodes
 
-Automatically rescheduling failed tasks
+📦 Deploy the Stack
 
-Performing rolling updates without taking the service down
+On the manager node:
+git clone https://github.com/harikayarabala/multi-client-swarm.git
+cd multi-client-swarm
+docker stack deploy -c stack.yml appstack
 
-Service Discovery
+Check services:
+docker service ls
+docker stack ps appstack
 
-Swarm provides internal DNS-based service discovery on overlay networks.
-Traefik uses Swarm provider to discover services and load-balance across replicas.
+✅ Validate Routing (Client Apps)
+Option 1: Using domains in browser
 
-9) CI/CD Pipeline (GitHub Actions)
+http(s)://client-a.<your-domain>
 
-Pipeline steps:
+http(s)://client-b.<your-domain>
 
-Checkout code
+Expected JSON like:
+{"message":"Hello from Client-A","database":"postgres://client-a-db"}
+{"message":"Hello from Client-B","database":"postgres://client-b-db"}
 
-Build Docker images
+Option 2: Using curl with Host header (best for testing)
+curl -i http://<EC2_PUBLIC_IP>/ -H "Host: client-a.<your-domain>"
+curl -i http://<EC2_PUBLIC_IP>/ -H "Host: client-b.<your-domain>"
 
-Tag images with commit SHA
+Scaling (replicas)
 
-Push to Docker Hub
+Scale Client-A:
 
-SSH into EC2 manager
+docker service scale appstack_client-a-node=3
 
-Deploy/update stack (docker stack deploy)
+Scale Client-B:
 
-Bonus idea (design):
+docker service scale appstack_client-b-python=3
 
-Branch-based deploy: dev / stage / prod using separate stack files and secrets.
+Verify:
 
-10) Multi-Client Strategy (20 clients/month) — Design Thinking
+docker service ps appstack_client-a-node
+docker service ps appstack_client-b-python
+🔁 Rolling Update (Zero downtime)
 
-Recommended approach:
+Update image (example):
 
-Shared Swarm cluster, per-client subdomain routing
+docker service update \
+  --image <your-image>:<new-tag> \
+  --update-parallelism 1 \
+  --update-delay 10s \
+  appstack_client-a-node
 
-Naming convention for secrets per client (e.g., client_x_db, client_x_name)
+Swarm ensures availability by:
 
-Use node labels + placement constraints for isolation if required
+Updating replicas gradually (parallelism=1)
 
-Cost optimization:
+Keeping old replicas running until new ones are healthy
 
-pack smaller clients on shared nodes
+Rescheduling tasks on failure
 
-separate premium clients onto dedicated nodes
 
-autoscale EC2 using ASG based on CPU/memory
+Monitoring
+Prometheus
 
-11) Monitoring & Logging (Proposal)
+Targets page:
 
-Metrics: Prometheus + Grafana (container/node metrics)
+http://<EC2_PUBLIC_IP>:9090/targets
 
-Logging: Loki or ELK centralized logging
+Grafana
 
-Add HEALTHCHECK in Dockerfiles + optional Traefik health routing
+http://<EC2_PUBLIC_IP>:3000
 
+Check dashboards:
+
+Node Exporter Full
+
+cAdvisor / Container metrics
+
+🧾 Logging (Loki)
+
+Grafana → Explore → Loki
+
+Example query:
+
+{job="docker"}
+
+You should see container logs for services like:
+
+traefik
+
+promtail
+
+loki
+
+client-a / client-b apps
+
+
+🧰 Useful Commands
+
+Service logs:
+
+docker service logs -f appstack_client-a-node
+docker service logs -f appstack_client-b-python
+
+Traefik dashboard:
+
+http://<EC2_PUBLIC_IP>:8080/dashboard#/
+
+List networks:
+
+docker network ls
+
+Cleanup
+
+Remove stack:
+
+docker stack rm appstack
+
+(Optional) leave swarm:
+
+docker swarm leave --force
+
+🧠 Notes / Multi-client expansion plan
+
+If 20 new clients onboard monthly:
+
+Use shared swarm cluster + templated service definitions
+
+Naming convention: client-<id>-app
+
+Keep client-specific secrets in Docker secrets
+
+Use node labels + placement constraints for heavy clients
+
+Use CI/CD tagging strategy: app:<commit-sha> per release
+Evidence (Screenshots)
+
+See evidence/ folder for:
+
+Prometheus targets UP
+
+Grafana Loki logs
+
+Node exporter dashboard
+
+cAdvisor dashboard
+
+Traefik dashboard
+
+Client-A and Client-B response outputs
