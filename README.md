@@ -222,9 +222,31 @@ docker stack rm appstack
 
 docker swarm leave --force
 
-🧠 Notes / Multi-client expansion plan
-
 ---
+
+## 🚀 CI/CD Pipeline (Design Level)
+
+### Goal
+Automate build → tag → push → deploy to Docker Swarm with zero/low downtime.
+
+### Pipeline Steps
+1. Checkout code
+2. Build Docker images for Client-A and Client-B
+3. Tag images with:
+   - `:<commit-sha>` (immutable release)
+   - optional `:latest` for dev
+4. Push images to:
+   - Docker Hub OR AWS ECR
+5. Deploy to Swarm Manager:
+   - `docker service update ...` (rolling update) OR
+   - `docker stack deploy ...`
+
+### Branch-based Environments (Bonus)
+- `dev` branch → deploy to Dev Swarm cluster / Dev stack
+- `stage` branch → deploy to Stage Swarm cluster / Stage stack
+- `main` branch → deploy to Prod Swarm cluster / Prod stack
+
+
 
 ## 🧠 Multi-Client Architecture Thinking (20 new clients/month)
 
