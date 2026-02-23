@@ -237,16 +237,25 @@ Use node labels + placement constraints for heavy clients
 Use CI/CD tagging strategy: app:<commit-sha> per release
 Evidence (Screenshots)
 
-See evidence/ folder for:
+## 📎 Evidence (Screenshots)
 
-Prometheus targets UP
+### Prometheus Targets
+![Prometheus](evidence/prometheus-targets.png)
 
-Grafana Loki logs
+### Grafana Logs
+![Grafana Logs](evidence/grafana-logs.png)
 
-Node exporter dashboard
+### Node Exporter Dashboard
+![Node Exporter](evidence/node-exporter-dashboard.png)
 
-cAdvisor dashboard
+### cAdvisor Dashboard
+![cAdvisor](evidence/cadvisor-dashboard.png)
 
-Traefik dashboard
+### Traefik Dashboard
+![Traefik](evidence/traefik-dashboard.png)
 
-Client-A and Client-B response outputs
+### Client-A Response
+![Client-A](evidence/client-a-output.png)
+
+### Client-B Response
+![Client-B](evidence/client-b-output.png)
